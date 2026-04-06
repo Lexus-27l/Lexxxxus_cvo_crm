@@ -1059,12 +1059,18 @@ const RESULT_KEYS = ['transferred', 'nodial', 'skip', 'callback', 'cut', 'ao', '
 // Читаем профиль пользователя через REST API напрямую (обходит баг SDK offline)
 async function fetchUserDocREST(uid, idToken) {
   const projectId = firebaseConfig.projectId;
-  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/user/${uid}`;
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/user/${encodeURIComponent(uid)}`;
+  console.log('REST URL:', url);
+  console.log('Token prefix:', idToken.substring(0, 20));
   const resp = await fetch(url, {
     headers: { 'Authorization': 'Bearer ' + idToken }
   });
   console.log('REST API status:', resp.status);
-  if (resp.status === 404) return null;
+  if (resp.status === 404) {
+    const body = await resp.text();
+    console.log('404 body:', body);
+    return null;
+  }
   if (!resp.ok) throw new Error('HTTP ' + resp.status);
   const data = await resp.json();
   // Конвертируем Firestore REST формат в обычный объект
