@@ -997,7 +997,7 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db   = firebase.firestore();
 // Long polling для работы на GitHub Pages (без WebSocket)
-db.settings({ host: 'firestore.googleapis.com', ssl: true, experimentalForceLongPolling: true, experimentalAutoDetectLongPolling: false });
+db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
 
 // Compat shims — чтобы старый код работал без изменений
 const initializeApp = () => {};
@@ -1056,27 +1056,47 @@ const RESULTS = {
 const RESULT_KEYS = ['transferred', 'nodial', 'skip', 'callback', 'cut', 'ao', 'norel'];
 
 /* ──────── AUTH ──────── */
+// Читаем профиль пользователя через REST API напрямую (обходит баг SDK offline)
+async function fetchUserDocREST(uid, idToken) {
+  const projectId = firebaseConfig.projectId;
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/user/${uid}`;
+  const resp = await fetch(url, {
+    headers: { 'Authorization': 'Bearer ' + idToken }
+  });
+  console.log('REST API status:', resp.status);
+  if (resp.status === 404) return null;
+  if (!resp.ok) throw new Error('HTTP ' + resp.status);
+  const data = await resp.json();
+  // Конвертируем Firestore REST формат в обычный объект
+  const fields = data.fields || {};
+  const result = {};
+  for (const [k, v] of Object.entries(fields)) {
+    result[k] = v.stringValue ?? v.integerValue ?? v.booleanValue ?? v.doubleValue ?? null;
+  }
+  return result;
+}
+
 onAuthStateChanged(auth, async user => {
   console.log('Auth state changed:', user ? user.email : 'null');
   if (!user) { show('login'); return; }
   console.log('Loading user doc for UID:', user.uid);
   try {
-    const snap = await getDoc(doc(db, 'user', user.uid));
-    console.log('User doc exists:', snap.exists(), snap.exists() ? snap.data() : 'NOT FOUND');
-    if (!snap.exists()) {
-      console.error('User document not found in Firestore collection "user"');
+    const idToken = await user.getIdToken();
+    const userData = await fetchUserDocREST(user.uid, idToken);
+    console.log('User data from REST:', userData);
+    if (!userData) {
       el('li-err') && (el('li-err').textContent = 'Профиль не найден. Обратитесь к администратору.');
       await signOut(auth); show('login'); return;
     }
-    me = { uid: user.uid, ...snap.data() };
+    me = { uid: user.uid, ...userData };
     show('app');
     document.getElementById('tb-user').textContent =
       (me.role === 'admin' ? '👑 ' : '📞 ') + (me.name || me.email);
     if (me.role === 'admin') initAdmin();
     else initManager();
   } catch(err) {
-    console.error('Firestore getDoc error:', err.code, err.message);
-    el('li-err') && (el('li-err').textContent = 'Ошибка подключения к базе: ' + err.message);
+    console.error('Auth load error:', err.message);
+    el('li-err') && (el('li-err').textContent = 'Ошибка: ' + err.message);
     await signOut(auth);
     show('login');
   }
