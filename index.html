@@ -975,20 +975,14 @@ input[type=file]{display:none}
 <!-- ═══════════════════════════════════════════════════
      FIREBASE + APP LOGIC
      ═══════════════════════════════════════════════════ -->
-<script type="module">
+<!-- Firebase compat CDN (работает на GitHub Pages) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script>
 /* ──────────────────────────────────────────────────
-   🔧  ВСТАВЬ СЮДА СВОИ ДАННЫЕ ИЗ FIREBASE CONSOLE
-   Firebase Console → Project Settings → Your apps → firebaseConfig
+   🔧  FIREBASE CONFIG
    ────────────────────────────────────────────────── */
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged,
-         createUserWithEmailAndPassword, browserLocalPersistence, setPersistence }
-  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { getFirestore, collection, addDoc, getDocs, getDoc, setDoc, doc,
-         updateDoc, deleteDoc, query, where, orderBy, onSnapshot,
-         writeBatch, Timestamp, limit, runTransaction, arrayUnion, initializeFirestore, CACHE_SIZE_UNLIMITED }
-  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-
 const firebaseConfig = {
   apiKey: "AIzaSyBk3-JiuISel6WWOfp_1UKnCD2C_F67cs4",
   authDomain: "svocrm.firebaseapp.com",
@@ -999,12 +993,40 @@ const firebaseConfig = {
   measurementId: "G-SWP0NY3532"
 };
 
-const app  = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db   = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
-  useFetchStreams: false
-});
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+// Long polling — работает на любом хостинге включая GitHub Pages
+db.settings({ experimentalForceLongPolling: true, merge: true });
+
+// Compat shims — чтобы старый код работал без изменений
+const initializeApp = () => {};
+const getAuth = () => auth;
+const getFirestore = () => db;
+const initializeFirestore = () => db;
+const signInWithEmailAndPassword = (a, email, pass) => auth.signInWithEmailAndPassword(email, pass);
+const signOut = (a) => auth.signOut();
+const onAuthStateChanged = (a, cb) => auth.onAuthStateChanged(cb);
+const createUserWithEmailAndPassword = (a, email, pass) => auth.createUserWithEmailAndPassword(email, pass);
+const browserLocalPersistence = firebase.auth.Auth.Persistence.LOCAL;
+const setPersistence = (a, p) => auth.setPersistence(p);
+const collection = (d, path) => db.collection(path);
+const addDoc = (ref, data) => ref.add(data);
+const getDocs = (q) => q.get();
+const getDoc = (ref) => ref.get();
+const setDoc = (ref, data, opts) => opts ? ref.set(data, opts) : ref.set(data);
+const doc = (d, path, id) => id ? db.collection(path).doc(id) : db.doc(path);
+const updateDoc = (ref, data) => ref.update(data);
+const deleteDoc = (ref) => ref.delete();
+const query = (ref, ...constraints) => { let q = ref; constraints.forEach(c => { q = c(q); }); return q; };
+const where = (f, op, v) => (q) => q.where(f, op, v);
+const orderBy = (f, dir) => (q) => q.orderBy(f, dir || 'asc');
+const onSnapshot = (q, cb, err) => q.onSnapshot(cb, err);
+const writeBatch = (d) => db.batch();
+const limit = (n) => (q) => q.limit(n);
+const runTransaction = (d, fn) => db.runTransaction(fn);
+const arrayUnion = (...els) => firebase.firestore.FieldValue.arrayUnion(...els);
+const Timestamp = firebase.firestore.Timestamp;
 
 // Постоянная сессия — не вылетает при перезагрузке
 setPersistence(auth, browserLocalPersistence).catch(console.error);
