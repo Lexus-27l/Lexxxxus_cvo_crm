@@ -996,7 +996,6 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db   = firebase.firestore();
-// Long polling для работы на GitHub Pages (без WebSocket)
 db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
 
 // Compat shims — чтобы старый код работал без изменений
@@ -1057,55 +1056,36 @@ const RESULT_KEYS = ['transferred', 'nodial', 'skip', 'callback', 'cut', 'ao', '
 
 /* ──────── AUTH ──────── */
 // Читаем профиль пользователя через REST API напрямую (обходит баг SDK offline)
-async function fetchUserDocREST(uid, idToken) {
-  const projectId = firebaseConfig.projectId;
-  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/user/${encodeURIComponent(uid)}`;
-  console.log('REST URL:', url);
-  console.log('Token prefix:', idToken.substring(0, 20));
-  const resp = await fetch(url, {
-    headers: { 'Authorization': 'Bearer ' + idToken }
-  });
-  console.log('REST API status:', resp.status);
-  if (resp.status === 404) {
-    const body = await resp.text();
-    console.log('404 body:', body);
-    return null;
-  }
-  if (!resp.ok) throw new Error('HTTP ' + resp.status);
-  const data = await resp.json();
-  // Конвертируем Firestore REST формат в обычный объект
-  const fields = data.fields || {};
-  const result = {};
-  for (const [k, v] of Object.entries(fields)) {
-    result[k] = v.stringValue ?? v.integerValue ?? v.booleanValue ?? v.doubleValue ?? null;
-  }
-  return result;
-}
-
 onAuthStateChanged(auth, async user => {
   console.log('Auth state changed:', user ? user.email : 'null');
   if (!user) { show('login'); return; }
   console.log('Loading user doc for UID:', user.uid);
-  try {
-    const idToken = await user.getIdToken();
-    const userData = await fetchUserDocREST(user.uid, idToken);
-    console.log('User data from REST:', userData);
-    if (!userData) {
-      el('li-err') && (el('li-err').textContent = 'Профиль не найден. Обратитесь к администратору.');
-      await signOut(auth); show('login'); return;
+  let snap = null;
+  for (let i = 0; i < 3; i++) {
+    try {
+      snap = await db.collection('user').doc(user.uid).get();
+      console.log('Attempt', i+1, '- exists:', snap.exists);
+      if (snap.exists) break;
+      if (i < 2) await new Promise(r => setTimeout(r, 1500));
+    } catch(err) {
+      console.error('Attempt', i+1, 'error:', err.code, err.message);
+      if (i < 2) await new Promise(r => setTimeout(r, 2000));
+      else {
+        el('li-err') && (el('li-err').textContent = 'Ошибка: ' + err.message);
+        await auth.signOut(); show('login'); return;
+      }
     }
-    me = { uid: user.uid, ...userData };
-    show('app');
-    document.getElementById('tb-user').textContent =
-      (me.role === 'admin' ? '👑 ' : '📞 ') + (me.name || me.email);
-    if (me.role === 'admin') initAdmin();
-    else initManager();
-  } catch(err) {
-    console.error('Auth load error:', err.message);
-    el('li-err') && (el('li-err').textContent = 'Ошибка: ' + err.message);
-    await signOut(auth);
-    show('login');
   }
+  if (!snap || !snap.exists) {
+    el('li-err') && (el('li-err').textContent = 'Профиль не найден. Обратитесь к администратору.');
+    await auth.signOut(); show('login'); return;
+  }
+  me = { uid: user.uid, ...snap.data() };
+  show('app');
+  document.getElementById('tb-user').textContent =
+    (me.role === 'admin' ? '👑 ' : '📞 ') + (me.name || me.email);
+  if (me.role === 'admin') initAdmin();
+  else initManager();
 });
 
 window.doLogin = async () => {
