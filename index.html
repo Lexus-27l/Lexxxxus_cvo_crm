@@ -996,8 +996,8 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db   = firebase.firestore();
-// Long polling — работает на любом хостинге включая GitHub Pages
-db.settings({ experimentalForceLongPolling: true, merge: true });
+// Long polling для работы на GitHub Pages (без WebSocket)
+db.settings({ host: 'firestore.googleapis.com', ssl: true, experimentalForceLongPolling: true, experimentalAutoDetectLongPolling: false });
 
 // Compat shims — чтобы старый код работал без изменений
 const initializeApp = () => {};
